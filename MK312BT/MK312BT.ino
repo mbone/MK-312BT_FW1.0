@@ -260,7 +260,7 @@ void runningLine1() {
 void loop() {
   wdt_reset();
 
-  //serial_process();   <--- Broken need to fix.
+  //serial_process();
 
   {
     uint8_t deferred_result = mode_dispatcher_poll_deferred();
