@@ -148,7 +148,7 @@ void setup() {
   menuShowStartup();
   while (1) {
     wdt_reset();
-    serial_process();
+    //serial_process();
     lcd_enable_buttons();
     _delay_us(50);
     bool ok   = !digitalRead(BUTTON_OK_PIN);
