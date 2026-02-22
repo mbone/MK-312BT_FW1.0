@@ -1,6 +1,6 @@
 # MK-312BT Firmware - Accurate C Reimplementation
 
-This project contains an accurate C reimplementation of the ErosTek MK-312BT firmware for the ATmega16 microcontroller, based on disassembly analysis of the original binary (312-16-decrypted-combined.bin).
+This project contains an accurate C reimplementation of the MK-312BT firmware for the ATmega16 microcontroller, based on disassembly analysis of the original binary.
 
 **Note:** This project is designed for Arduino IDE compilation with MightyCore board support.
 
