@@ -50,9 +50,14 @@ typedef struct {
 
 static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
     if (ma_high >= ma_low) {
-        return ma_low + (uint8_t)(((uint16_t)ma_raw * (ma_high - ma_low)) / 255);
+        // Increasing range: result = ma_low + (ma_raw * (ma_high - ma_low)) / 256
+        uint16_t range = ma_high - ma_low;
+        return ma_low + (uint8_t)(((uint16_t)ma_raw * range) >> 8);
+    } else {
+        // Decreasing range: result = ma_low - (ma_raw * (ma_low - ma_high)) / 256
+        uint16_t range = ma_low - ma_high;
+        return ma_low - (uint8_t)(((uint16_t)ma_raw * range) >> 8);
     }
-    return ma_low - (uint8_t)(((uint16_t)ma_raw * (ma_low - ma_high)) / 255);
 }
 
 static uint8_t resolve_source(uint8_t index, uint8_t own_val,

@@ -91,7 +91,7 @@ static void applyPowerLevel(void) {
 }
 
 static uint8_t ramp_scale_intensity(uint8_t intensity, uint8_t ramp_val) {
-    return (uint8_t)(((uint16_t)intensity * ramp_val) / 255);
+    return (uint8_t)(((uint16_t)intensity * ramp_val) >> 8);
 }
 
 void setup() {
@@ -217,14 +217,14 @@ uint8_t readAndUpdateChannel(uint8_t c) {
 
   if (c == 0) {
     uint16_t v = analogRead(ADC_CHANNEL_LEVEL_A_PIN);
-    uint8_t bv = min(99, max(0, (uint8_t)(v / 8)));
-    uint16_t dac_val = ChannelAPwrBase +
-      ((uint32_t)ChannelAModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
+    uint8_t bv = min(99, max(0, (uint8_t)(v >> 3)));
+uint16_t dac_val = ChannelAPwrBase +
+  ((uint32_t)ChannelAModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
     if (dac_val > DAC_MAX_VALUE) dac_val = DAC_MAX_VALUE;
 
     uint8_t intensity = ramp_scale_intensity(channel_a.intensity_value, channel_a.ramp_value);
     intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
-    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) / 255);
+    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
 
     dac_write_channel_a(dac_val);
     return bv;
@@ -237,7 +237,7 @@ uint8_t readAndUpdateChannel(uint8_t c) {
 
     uint8_t intensity = ramp_scale_intensity(channel_b.intensity_value, channel_b.ramp_value);
     intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
-    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) / 255);
+    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
 
     dac_write_channel_b(dac_val);
     return bv;
@@ -253,7 +253,7 @@ void runningLine1() {
     if (MAInput > DAC_MAX_VALUE) MAInput = DAC_MAX_VALUE;
 
     system_config_t* sys_config = config_get();
-    sys_config->multi_adjust = (uint8_t)((MAInput * 255UL) / DAC_MAX_VALUE);
+   sys_config->multi_adjust = (uint8_t)(MAInput >> 2);
   }
 }
 
@@ -308,8 +308,8 @@ void loop() {
   uint16_t period_a_us = (freq_a < 2) ? 65000 : (uint16_t)((uint32_t)freq_a * 256UL);
   uint16_t period_b_us = (freq_b < 2) ? 65000 : (uint16_t)((uint32_t)freq_b * 256UL);
 
-  uint8_t width_a_us = (uint8_t)(70 + (uint16_t)width_a * 180 / 255);
-  uint8_t width_b_us = (uint8_t)(70 + (uint16_t)width_b * 180 / 255);
+  uint8_t width_a_us = (uint8_t)(70 + ((uint16_t)width_a * 180) >> 8);
+  uint8_t width_b_us = (uint8_t)(70 + ((uint16_t)width_b * 180) >> 8);
 
   pulse_set_width_a(width_a_us);
   pulse_set_width_b(width_b_us);
