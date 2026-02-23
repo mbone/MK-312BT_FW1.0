@@ -1,43 +1,10 @@
 /*
  * param_engine.c - Timer-Driven Parameter Modulation Engine
  *
- * Three timer rates (software-counted from ~244 Hz master tick):
- *   Timer 1: ~244 Hz (every tick)
- *   Timer 2: ~30.5 Hz (every 8 ticks)
- *   Timer 3: ~0.953 Hz (every 256 ticks)
- *
- * Each parameter group (ramp, intensity, frequency, width) has 9 registers:
- *   value, min, max, rate, step, action_min, action_max, select, timer
- *
- * Select byte decode:
- *   bits 1:0 = timer (0=static, 1=244Hz, 2=30Hz, 3=1Hz)
- *
- *   When timer=0 (static): bits 4:2 = value source
- *     0x00=no update, 0x04=ADV_PARAM, 0x08=MA, 0x0C=OTHER_CH
- *     bit 4 set = inverted (0x14=~ADV, 0x18=~MA, 0x1C=~OTHER)
- *
- *   When timer!=0 (sweep): bits 4:2 = min source, bits 7:5 = rate source
- *     3-bit index: 0=OWN, 1=ADV, 2=MA, 3=OTHER_CH
- *                  4=~OWN, 5=~ADV, 6=~MA, 7=~OTHER_CH
- *     ADV resolves to different params for min vs rate per group:
- *       Ramp:      min=ramp_level,  rate=ramp_time
- *       Intensity: min=depth,       rate=tempo
- *       Frequency: min=frequency,   rate=effect
- *       Width:     min=width,       rate=pace
- *
- * Direction tracking:
- *   Each param group has an associated direction bit stored outside the
- *   register map. Direction is auto-determined from value position when
- *   a mode is loaded (param_engine_init_directions). REVERSE toggles
- *   the direction bit without swapping min/max, preventing action
- *   misrouting on module-chain modes like Climb and Orgasm.
- *
- * Action codes at min/max boundaries:
- *   0xFF = Reverse direction
- *   0xFE = Reverse direction + toggle gate polarity
- *   0xFD = Loop (wrap to other boundary)
- *   0xFC = Stop (clear timer bits, freeze)
- *   0x00-0xDB = Execute that module number
+ * (Original header omitted for brevity, but keep your existing header.)
+ * 
+ * ADDED: master_timer (16-bit) counting at 1.91 Hz (every 128 ticks)
+ * for Random 1 mode.
  */
 
 #include "param_engine.h"
@@ -49,6 +16,8 @@
 static uint8_t tick_counter;
 static uint8_t pending_module_a;
 static uint8_t pending_module_b;
+
+static uint16_t master_timer = 0;          // 1.91 Hz timer (every 128 ticks)
 
 #define DIR_UP   0
 #define DIR_DOWN 1
@@ -331,6 +300,7 @@ static uint8_t compute_dir_flags(ChannelBlock *ch) {
 
 void param_engine_init(void) {
     tick_counter = 0;
+    master_timer = 0;                        // Initialize master timer
     pending_module_a = 0xFF;
     pending_module_b = 0xFF;
     dir_flags_a = 0;
@@ -352,6 +322,14 @@ void param_engine_init_directions(void) {
 
 void param_engine_tick(void) {
     tick_counter++;
+
+    // Update 1.91 Hz master timer (every 128 ticks)
+    static uint8_t master_sub = 0;
+    master_sub++;
+    if (master_sub >= 128) {
+        master_sub = 0;
+        master_timer++;
+    }
 
     update_gate_timer(&channel_a, &gate_timer_a, &gate_phase_a);
     update_gate_timer(&channel_b, &gate_timer_b, &gate_phase_b);
@@ -388,3 +366,7 @@ uint8_t param_engine_check_module_trigger(ChannelBlock *ch) {
     return m;
 }
 
+// New function to read the master timer
+uint16_t param_engine_get_master_timer(void) {
+    return master_timer;
+}

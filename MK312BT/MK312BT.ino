@@ -16,8 +16,9 @@
  *     2. Handle button input (mode selection, menu navigation)
  *     3. Read level pots and MA knob via ADC, update DAC intensity
  *     4. Run mode dispatcher (parameter engine or bytecode)
- *     5. Convert channel_a/channel_b register values to pulse generator parameters
- *     6. Update LCD display periodically
+ *     5. For audio modes, process audio inputs to modulate intensity
+ *     6. Convert channel_a/channel_b register values to pulse generator parameters
+ *     7. Update LCD display periodically
  *
  * All live channel state (gate, freq, width, intensity, ramp) is read
  * directly from channel_a / channel_b (ChannelBlock). g_mk312bt_state
@@ -148,7 +149,7 @@ void setup() {
   menuShowStartup();
   while (1) {
     wdt_reset();
-    //serial_process();
+    serial_process();
     lcd_enable_buttons();
     _delay_us(50);
     bool ok   = !digitalRead(BUTTON_OK_PIN);
@@ -281,18 +282,19 @@ void loop() {
   }
 
   applyPowerLevel();
-  config_sync_from_eeprom_config(&g_menu_config);
+  //config_sync_from_eeprom_config(&g_menu_config);
   runningLine1();
 
   if (millis() - last_mode_update >= 4) {
     last_mode_update = millis();
     mode_dispatcher_update();
-  }
 
-  uint8_t cur_mode = mode_dispatcher_get_mode();
-  if (cur_mode >= MODE_AUDIO1 && cur_mode <= MODE_AUDIO3) {
-    audio_process_channel_a();
-    audio_process_channel_b();
+    // --- Audio processing for audio modes ---
+    uint8_t cur_mode = mode_dispatcher_get_mode();
+    if (cur_mode >= MODE_AUDIO1 && cur_mode <= MODE_AUDIO3) {
+        audio_process_channel_a();
+        audio_process_channel_b();
+    }
   }
 
   uint8_t gate_a  = channel_a.gate_value & GATE_ON_BIT;
@@ -320,40 +322,26 @@ void loop() {
   pulse_set_gate_a(pulse_a_on);
   pulse_set_gate_b(pulse_b_on);
 
-  static uint8_t led_pwm_phase = 0;
-  static unsigned long last_led_update = 0;
-  static uint8_t led_bright_a = 0;
-  static uint8_t led_bright_b = 0;
+  static uint8_t pwm_phase = 0;
+pwm_phase++;
 
-  if (millis() - last_led_update >= 2) {
-    last_led_update = millis();
-    led_pwm_phase++;
+uint8_t brightness_a = ((uint16_t)channel_a.intensity_value * channel_a.width_value) >> 8;
+uint8_t brightness_b = ((uint16_t)channel_b.intensity_value * channel_b.width_value) >> 8;
 
-    uint8_t target_a = (pulse_a_on && gate_a) ? channel_a.intensity_value : 0;
-    uint8_t target_b = (pulse_b_on && gate_b) ? channel_b.intensity_value : 0;
+//bool output_on = menuIsOutputEnabled();
+bool active_a = output_on && (channel_a.gate_value & GATE_ON_BIT) && (channel_a.freq_value >= 2);
+bool active_b = output_on && (channel_b.gate_value & GATE_ON_BIT) && (channel_b.freq_value >= 2);
 
-    if (target_a > led_bright_a) {
-      led_bright_a = target_a;
-    } else if (led_bright_a > 0) {
-      led_bright_a--;
-    }
+if (active_a && (brightness_a > pwm_phase))
+    PORTD &= ~(1 << PORTD_BIT_LED_A);   // LED A on
+else
+    PORTD |= (1 << PORTD_BIT_LED_A);    // LED A off
 
-    if (target_b > led_bright_b) {
-      led_bright_b = target_b;
-    } else if (led_bright_b > 0) {
-      led_bright_b--;
-    }
+if (active_b && (brightness_b > pwm_phase))
+    PORTD &= ~(1 << PORTD_BIT_LED_B);   // LED B on
+else
+    PORTD |= (1 << PORTD_BIT_LED_B);    // LED B off
 
-    if (led_bright_a > 0 && led_pwm_phase < led_bright_a)
-      PORTD &= ~(1 << PORTD_BIT_LED_A);
-    else
-      PORTD |= (1 << PORTD_BIT_LED_A);
-
-    if (led_bright_b > 0 && led_pwm_phase < led_bright_b)
-      PORTD &= ~(1 << PORTD_BIT_LED_B);
-    else
-      PORTD |= (1 << PORTD_BIT_LED_B);
-  }
 
   if (millis() - last_menu_update >= 200) {
     last_menu_update = millis();

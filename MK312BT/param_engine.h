@@ -14,6 +14,7 @@ void param_engine_tick(void);
 
 uint8_t param_engine_check_module_trigger(ChannelBlock *ch);
 uint8_t param_engine_get_tick(void);
+uint16_t param_engine_get_master_timer(void);
 
 #ifdef __cplusplus
 }

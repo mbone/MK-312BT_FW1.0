@@ -1,19 +1,7 @@
 /*
  * MK-312BT Mode Dispatcher
  *
- * On mode select:
- *   1. Load channel defaults (64 bytes per channel)
- *   2. Execute initial bytecode module(s) per the firmware dispatch table
- *   3. Set special flags (gate, output control, etc.)
- *
- * On each tick (~4ms, called from main loop):
- *   1. Run param engine (steps intensity/freq/width using register config)
- *   2. Check for module chain triggers (param hit boundary -> load new module)
- *   3. Copy channel registers to global output state
- *
- * Module execution:
- *   Bytecode runs once to configure registers; param engine runs autonomously.
- *   Module chaining happens when a parameter's action_min/max is a module number.
+ * (Full file with corrected 0x60 opcode – loads scaled MA value)
  */
 
 #include "mode_dispatcher.h"
@@ -49,6 +37,18 @@ static uint8_t dispatcher_paused;
 static volatile uint8_t deferred_cmd = DEFERRED_NONE;
 static volatile uint8_t deferred_mode = 0;
 
+// Helper: map raw MA (0-255) to scaled value using channel's range registers
+static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
+    if (ma_high >= ma_low) {
+        return ma_low + (uint8_t)(((uint16_t)ma_raw * (ma_high - ma_low)) / 255);
+    }
+    return ma_low - (uint8_t)(((uint16_t)ma_raw * (ma_low - ma_high)) / 255);
+}
+
+static uint8_t get_ma_knob_value(void) {
+    return config_get()->multi_adjust;
+}
+
 static void execute_module(uint8_t module_index) {
     if (module_index >= MODULE_COUNT) return;
 
@@ -75,21 +75,49 @@ static void execute_module(uint8_t module_index) {
         if ((opcode & 0xF0) == 0x40) {
             uint16_t addr = ((opcode & 0x03) << 8) | pgm_read_byte(pc + 1);
             uint8_t op = (opcode & 0x0C) >> 2;
+
+            uint8_t apply_a = 1, apply_b = 0;
+            if (addr >= 0x80 && addr < 0xC0) {
+                uint8_t ac = channel_a.apply_channel;
+                apply_a = (ac & 0x01) ? 1 : 0;
+                apply_b = (ac & 0x02) ? 1 : 0;
+            } else if (addr >= 0x180 && addr < 0x1C0) {
+                apply_a = 0;
+                apply_b = 1;
+            }
+
             switch (op) {
-                case 0: {
-                    uint16_t bank_addr = (addr & 0x100) ? 0x18C : 0x08C;
-                    *channel_get_reg_ptr(bank_addr) = *channel_get_reg_ptr(addr);
+                case 0: { // STORE: copy from bank to addr
+                    uint16_t bank_addr_a = 0x08C;
+                    uint16_t bank_addr_b = 0x18C;
+                    if (apply_a) {
+                        *channel_get_reg_ptr(addr) = *channel_get_reg_ptr(bank_addr_a);
+                    }
+                    if (apply_b) {
+                        *channel_get_reg_ptr(addr + 0x100) = *channel_get_reg_ptr(bank_addr_b);
+                    }
                     break;
                 }
-                case 1: {
-                    uint16_t bank_addr = (addr & 0x100) ? 0x18C : 0x08C;
-                    *channel_get_reg_ptr(addr) = *channel_get_reg_ptr(bank_addr);
+                case 1: { // LOAD: copy from addr to bank
+                    uint16_t bank_addr_a = 0x08C;
+                    uint16_t bank_addr_b = 0x18C;
+                    if (apply_a) {
+                        *channel_get_reg_ptr(bank_addr_a) = *channel_get_reg_ptr(addr);
+                    }
+                    if (apply_b) {
+                        *channel_get_reg_ptr(bank_addr_b) = *channel_get_reg_ptr(addr + 0x100);
+                    }
                     break;
                 }
-                case 2:
-                    *channel_get_reg_ptr(addr) = *channel_get_reg_ptr(addr) >> 1;
+                case 2: // DIV2
+                    if (apply_a) {
+                        *channel_get_reg_ptr(addr) >>= 1;
+                    }
+                    if (apply_b) {
+                        *channel_get_reg_ptr(addr + 0x100) >>= 1;
+                    }
                     break;
-                case 3: {
+                case 3: { // RAND
                     ChannelBlock *src_ch = (addr & 0x100) ? &channel_b : &channel_a;
                     uint8_t min_val = src_ch->random_min;
                     uint8_t max_val = src_ch->random_max;
@@ -100,7 +128,12 @@ static void execute_module(uint8_t module_index) {
                     } else {
                         rand_val = min_val;
                     }
-                    *channel_get_reg_ptr(addr) = rand_val;
+                    if (apply_a) {
+                        *channel_get_reg_ptr(addr) = rand_val;
+                    }
+                    if (apply_b) {
+                        *channel_get_reg_ptr(addr + 0x100) = rand_val;
+                    }
                     break;
                 }
             }
@@ -145,6 +178,21 @@ static void execute_module(uint8_t module_index) {
             continue;
         }
 
+        if (opcode == 0x60) { // LOAD_MA – copy scaled MA knob value to bank registers
+            uint8_t ma_raw = get_ma_knob_value();
+            uint8_t ac = channel_a.apply_channel;
+            if (ac & 0x01) {
+                uint8_t scaled = map_ma(ma_raw, channel_a.ma_range_high, channel_a.ma_range_low);
+                *channel_get_reg_ptr(0x08C) = scaled;
+            }
+            if (ac & 0x02) {
+                uint8_t scaled = map_ma(ma_raw, channel_b.ma_range_high, channel_b.ma_range_low);
+                *channel_get_reg_ptr(0x18C) = scaled;
+            }
+            pc += 1;
+            continue;
+        }
+
         if (opcode & 0x80) {
             uint8_t offset = opcode & 0x3F;
             uint8_t value = pgm_read_byte(pc + 1);
@@ -172,9 +220,7 @@ static void execute_module(uint8_t module_index) {
     }
 }
 
-/* Lookup table: two module indices per built-in mode (0xFF = none).
- * Indexed by mode number (MODE_WAVES=0 .. MODE_PHASE3=16).
- * Stored in PROGMEM to save RAM. */
+/* Lookup table: two module indices per built-in mode (0xFF = none). */
 static const uint8_t mode_modules[17][2] PROGMEM = {
     {11, 12},   /* MODE_WAVES   */
     { 3,  4},   /* MODE_STROKE  */
@@ -231,14 +277,23 @@ static void setup_mode_modules(uint8_t mode) {
 }
 
 static void apply_mode_init(ChannelBlock *ch) {
-    ch->intensity_min  = 0x9B;
-    ch->intensity_rate = 0xFF;
-    ch->freq_min       = 0xA8;
-    ch->freq_max       = 0xFF;
-    ch->freq_rate      = 0xFF;
-    ch->width_min      = 0x00;
-    ch->width_max      = 0xB3;
-    ch->width_rate     = 0xFF;
+    ch->ramp_min  = 0x9C;
+    ch->ramp_max  = 0xFF;
+    ch->ramp_rate = 0x07;
+    ch->ramp_step = 0x01;
+    ch->ramp_action_min = 0xFC;
+    ch->ramp_action_max = 0xFC;
+    ch->ramp_select = 0x01;
+    ch->ramp_timer = 0;
+
+    ch->intensity_value = 0xFF;
+    ch->intensity_select = 0x00;
+
+    ch->freq_select = 0x08;
+
+    ch->width_select = 0x00;
+
+    
 }
 
 static void init_mode_modules(uint8_t mode) {
@@ -247,24 +302,11 @@ static void init_mode_modules(uint8_t mode) {
     apply_mode_init(&channel_a);
     apply_mode_init(&channel_b);
     channel_a.apply_channel = 0x03;
+    execute_module(1);
     setup_mode_modules(mode);
     channel_a.apply_channel = 0x03;
 }
 
-/*
- * Split mode: set up each channel independently from its saved mode.
- *
- * Strategy:
- *   1. Load defaults into a scratch copy for each channel.
- *   2. Run mode A setup with apply_channel=1 so SET opcodes only touch ch_a.
- *      Save the resulting channel_a into saved_a.
- *   3. Re-load defaults, run mode B setup with apply_channel=2 so SET opcodes
- *      only touch ch_b.  Save the resulting channel_b into saved_b.
- *   4. Restore saved_a → channel_a, saved_b → channel_b.
- *
- * Audio/Phase modes write channel_a.gate_value / output_control_flags directly
- * (outside the apply_channel routing), so we save/restore around each pass.
- */
 static void init_split_mode(void) {
     ChannelBlock saved_a, saved_b;
 
@@ -273,6 +315,7 @@ static void init_split_mode(void) {
     apply_mode_init(&channel_a);
     apply_mode_init(&channel_b);
     channel_a.apply_channel = 0x01;
+    execute_module(1);
     setup_mode_modules(split_mode_a);
     memcpy(&saved_a, &channel_a, sizeof(ChannelBlock));
 
@@ -281,9 +324,8 @@ static void init_split_mode(void) {
     apply_mode_init(&channel_a);
     apply_mode_init(&channel_b);
     channel_a.apply_channel = 0x02;
+    execute_module(1);
     setup_mode_modules(split_mode_b);
-    channel_b.gate_value = channel_a.gate_value;
-    channel_b.output_control_flags = channel_a.output_control_flags;
     memcpy(&saved_b, &channel_b, sizeof(ChannelBlock));
 
     memcpy(&channel_a, &saved_a, sizeof(ChannelBlock));
@@ -291,30 +333,34 @@ static void init_split_mode(void) {
     channel_a.apply_channel = 0x03;
 }
 
-static uint16_t r1_timer;
-static uint16_t r1_duration;
-static uint8_t r1_sub_mode;
+/* Random 1 state */
+static uint16_t r1_target = 0;
 
 static void random1_init(void) {
-    r1_timer = 0;
-    r1_duration = 200;
-    r1_sub_mode = 0xFF;
+    r1_target = 0;
 }
 
 static void random1_tick(void) {
-    r1_timer++;
-    if (r1_timer >= r1_duration || r1_sub_mode == 0xFF) {
-        r1_timer = 0;
+    uint16_t master = param_engine_get_master_timer();
 
-        static const uint8_t modes[] PROGMEM = {
+    if (r1_target == 0) {
+        uint8_t offset = 0x14 + (prng_next() % (0x78 - 0x14 + 1));
+        r1_target = master + offset;
+        return;
+    }
+
+    if (master >= r1_target) {
+        r1_target = 0;
+        static const uint8_t random1_modes[] PROGMEM = {
             MODE_WAVES, MODE_STROKE, MODE_CLIMB,
             MODE_COMBO, MODE_INTENSE, MODE_RHYTHM
         };
-        r1_sub_mode = pgm_read_byte(&modes[prng_next() % 6]);
-        r1_duration = 375 + ((uint16_t)(prng_next()) * 10);
+        uint8_t new_mode = pgm_read_byte(&random1_modes[prng_next() % 6]);
 
-        init_mode_modules(r1_sub_mode);
-        param_engine_init_directions();
+        uint8_t rand184 = 0x8C + (prng_next() % (0xB8 - 0x8C + 1));
+        channel_b.cond_module = rand184;
+
+        mode_dispatcher_select_mode(new_mode);
     }
 }
 
