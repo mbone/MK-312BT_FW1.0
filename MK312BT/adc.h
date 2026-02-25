@@ -24,6 +24,8 @@ uint16_t adc_read_level_b(void);
 uint16_t adc_read_audio_a(void);
 uint16_t adc_read_audio_b(void);
 uint16_t adc_read_battery(void);
+uint16_t fastAnalogRead(uint8_t);
+
 
 #ifdef __cplusplus
 }

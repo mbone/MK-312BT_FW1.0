@@ -50,6 +50,7 @@
 /* UCSRB bit positions */
 #define RXCIE 7   /* RX Complete Interrupt Enable */
 #define RXEN  4   /* Receiver Enable */
+#define UDRIE 5   /* USART Data Register Empty Interrupt Enable */
 #define TXEN  3   /* Transmitter Enable */
 
 /* UCSRC bit positions */

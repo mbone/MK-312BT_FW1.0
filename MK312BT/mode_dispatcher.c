@@ -40,9 +40,9 @@ static volatile uint8_t deferred_mode = 0;
 // Helper: map raw MA (0-255) to scaled value using channel's range registers
 static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
     if (ma_high >= ma_low) {
-        return ma_low + (uint8_t)(((uint16_t)ma_raw * (ma_high - ma_low)) / 255);
+        return ma_low + (uint8_t)(((uint16_t)ma_raw * (ma_high - ma_low)) >> 8);
     }
-    return ma_low - (uint8_t)(((uint16_t)ma_raw * (ma_low - ma_high)) / 255);
+    return ma_low - (uint8_t)(((uint16_t)ma_raw * (ma_low - ma_high)) >> 8);
 }
 
 static uint8_t get_ma_knob_value(void) {

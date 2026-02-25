@@ -45,6 +45,7 @@ void serial_handle_write_command(uint16_t address, uint8_t length); /* Process W
 void serial_handle_key_exchange(uint8_t host_key);             /* Process KEY_EXCHANGE request */
 void serial_set_encryption_key(uint8_t box_key, uint8_t host_key); /* Derive shared XOR key */
 
+
 #ifdef __cplusplus
 }
 #endif

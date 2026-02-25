@@ -21,6 +21,11 @@
 #include "avr_registers.h"
 #include "MK312BT_Constants.h"
 
+/* External TX buffer variables from serial.c */
+//extern uint8_t tx_buffer[64];
+//extern volatile uint8_t tx_head;
+//extern volatile uint8_t tx_tail;
+
 static inline void ch_a_all_off(void) {
     PORTB &= ~((1 << HBRIDGE_CH_A_POS) | (1 << HBRIDGE_CH_A_NEG));
 }
@@ -183,7 +188,14 @@ ISR(TIMER2_COMP_vect) {
         }
     }
 }
-
-/* SPI interrupt is NOT enabled (SPIE not set in SPCR).
- * DAC writes use synchronous polling of SPIF in dac_spi_transfer().
- * No ISR needed here - removed to prevent any accidental SPIF clearing. */
+/* ---------- USART UDRE Interrupt (non‑blocking transmit) ---------- */
+/*
+ISR(USART_UDRE_vect) {
+    if (tx_head != tx_tail) {
+        UDR = tx_buffer[tx_tail];
+        tx_tail = (tx_tail + 1) % 64;
+    } else {
+        UCSRB &= ~(1 << UDRIE);   // buffer empty, disable interrupt
+    }
+}*/
+ 

@@ -61,6 +61,7 @@ uint16_t ChannelAModulationBase;
 uint16_t ChannelBModulationBase;
 
 uint16_t MAInput = 0;
+//extern bool system_timer_ready;
 
 static uint8_t last_power_level = 0xFF;
 
@@ -149,7 +150,7 @@ void setup() {
   menuShowStartup();
   while (1) {
     wdt_reset();
-    serial_process();
+    //serial_process();
     lcd_enable_buttons();
     _delay_us(50);
     bool ok   = !digitalRead(BUTTON_OK_PIN);
@@ -198,6 +199,7 @@ void setup() {
   mode_dispatcher_select_mode(CurrentModeIX);
 
   sei();
+  //system_timer_ready = true;
   wdt_enable(WDTO_2S);
   menuStartOutput();
 
@@ -322,6 +324,7 @@ void loop() {
   pulse_set_gate_a(pulse_a_on);
   pulse_set_gate_b(pulse_b_on);
 
+/*
   static uint8_t pwm_phase = 0;
 pwm_phase++;
 
@@ -342,6 +345,7 @@ if (active_b && (brightness_b > pwm_phase))
 else
     PORTD |= (1 << PORTD_BIT_LED_B);    // LED B off
 
+*/
 
   if (millis() - last_menu_update >= 200) {
     last_menu_update = millis();
@@ -354,6 +358,7 @@ else
     last_ramp_update = millis();
     menuHandleRampUp();
   }
+  
 }
 
 void initializeHardware() {
@@ -370,7 +375,8 @@ void initializeHardware() {
   UBRRH = (uint8_t)(USART_UBRR_VALUE >> 8);
   UBRRL = (uint8_t)USART_UBRR_VALUE;
   UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0);
-  UCSRB = (1 << RXEN) | (1 << TXEN);
+  UCSRB = (1 << RXEN) | (1 << TXEN) | (1 << RXCIE);
+  //UCSRB = (1 << RXEN) | (1 << TXEN);
 
   ADMUX  = ADC_VREF_AVCC;
   ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
