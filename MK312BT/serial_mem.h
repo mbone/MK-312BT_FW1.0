@@ -41,6 +41,7 @@ extern "C" {
 
 /* RAM region: individual virtual registers */
 #define VIRT_RAM_POT_LOCKOUT   0x400F
+#define VIRT_RAM_MA_OFFSET     0x4061
 #define VIRT_RAM_LEVEL_A       0x4064
 #define VIRT_RAM_LEVEL_B       0x4065
 #define VIRT_RAM_MENU_STATE    0x406D

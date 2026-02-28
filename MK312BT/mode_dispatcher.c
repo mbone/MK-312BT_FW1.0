@@ -38,7 +38,7 @@ static volatile uint8_t deferred_cmd = DEFERRED_NONE;
 static volatile uint8_t deferred_mode = 0;
 
 // Helper: map raw MA (0-255) to scaled value using channel's range registers
-static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
+uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
     if (ma_high >= ma_low) {
         return ma_low + (uint8_t)(((uint16_t)ma_raw * (ma_high - ma_low)) >> 8);
     }
@@ -46,7 +46,7 @@ static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
 }
 
 static uint8_t get_ma_knob_value(void) {
-    return config_get()->multi_adjust;
+    return *MULTI_ADJUST; // map(min(75, max(0, (uint8_t)(ma_read_level() >> 2))), 0, 75, 0, 255); //config_get()->multi_adjust;
 }
 
 static void execute_module(uint8_t module_index) {
@@ -179,14 +179,14 @@ static void execute_module(uint8_t module_index) {
         }
 
         if (opcode == 0x60) { // LOAD_MA – copy scaled MA knob value to bank registers
-            uint8_t ma_raw = get_ma_knob_value();
+            //uint8_t ma_raw = get_ma_knob_value();
             uint8_t ac = channel_a.apply_channel;
             if (ac & 0x01) {
-                uint8_t scaled = map_ma(ma_raw, channel_a.ma_range_high, channel_a.ma_range_low);
+                uint8_t scaled = *MULTI_ADJUST; 
                 *channel_get_reg_ptr(0x08C) = scaled;
             }
             if (ac & 0x02) {
-                uint8_t scaled = map_ma(ma_raw, channel_b.ma_range_high, channel_b.ma_range_low);
+                uint8_t scaled = *MULTI_ADJUST; 
                 *channel_get_reg_ptr(0x18C) = scaled;
             }
             pc += 1;

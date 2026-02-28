@@ -9,6 +9,7 @@
 
 #include "param_engine.h"
 #include "channel_mem.h"
+#include "MK312BT_Memory.h"
 #include "config.h"
 #include "prng.h"
 #include <stddef.h>
@@ -47,7 +48,7 @@ typedef struct {
     uint8_t select;
     uint8_t timer;
 } ParamGroup;
-
+/*
 static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
     if (ma_high >= ma_low) {
         // Increasing range: result = ma_low + (ma_raw * (ma_high - ma_low)) / 256
@@ -59,7 +60,7 @@ static uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low) {
         return ma_low - (uint8_t)(((uint16_t)ma_raw * range) >> 8);
     }
 }
-
+*/
 static uint8_t resolve_source(uint8_t index, uint8_t own_val,
                                uint8_t adv_val, uint8_t ma_scaled,
                                uint8_t other_val) {
@@ -200,7 +201,8 @@ static void update_gate_timer(ChannelBlock *ch, uint8_t *gt, uint8_t *gp) {
     if (!timer_fires(timer_sel)) return;
 
     system_config_t *cfg = config_get();
-    uint8_t ma_scaled = map_ma(cfg->multi_adjust, ch->ma_range_high, ch->ma_range_low);
+    //uint8_t ma_raw = *MULTI_ADJUST; 
+    uint8_t ma_scaled = *MULTI_ADJUST;  //map_ma(ma_raw, ch->ma_range_high, ch->ma_range_low);
 
     uint8_t ontime = ch->gate_ontime;
     if (sel & GATE_ON_FROM_MA)          ontime = ma_scaled;
@@ -233,7 +235,7 @@ static void update_gate_timer(ChannelBlock *ch, uint8_t *gt, uint8_t *gp) {
 static void step_channel(ChannelBlock *ch, ChannelBlock *other,
                           uint8_t ma_raw, uint8_t *trigger) {
     system_config_t *cfg = config_get();
-    uint8_t ma_scaled = map_ma(ma_raw, ch->ma_range_high, ch->ma_range_low);
+    uint8_t ma_scaled = *MULTI_ADJUST; //   map_ma(ma_raw, ch->ma_range_high, ch->ma_range_low);
     uint8_t *flags = get_dir_flags(ch);
     uint8_t m;
     uint8_t dir;
@@ -343,9 +345,9 @@ void param_engine_tick(void) {
     pending_module_b = 0xFF;
 
     system_config_t *cfg = config_get();
-    uint8_t ma_raw = cfg->multi_adjust;
-    uint8_t ma_a = map_ma(ma_raw, channel_a.ma_range_high, channel_a.ma_range_low);
-    uint8_t ma_b = map_ma(ma_raw, channel_b.ma_range_high, channel_b.ma_range_low);
+    uint8_t ma_raw = *MULTI_ADJUST; 
+    uint8_t ma_a = *MULTI_ADJUST;  //map_ma(ma_raw, channel_a.ma_range_high, channel_a.ma_range_low);
+    uint8_t ma_b = *MULTI_ADJUST;  // map_ma(ma_raw, channel_b.ma_range_high, channel_b.ma_range_low);
 
     step_channel(&channel_a, &channel_b, ma_raw, &pending_module_a);
     step_next_module_timer(&channel_a, ma_a, cfg->adv_tempo,

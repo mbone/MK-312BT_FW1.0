@@ -137,7 +137,7 @@ static uint8_t read_ram(uint16_t address) {
         case VIRT_RAM_CURRENT_MODE: return mode_to_protocol(cfg->current_mode);
 
         case VIRT_RAM_TOP_MODE:     return mode_to_protocol(cfg->current_mode);
-        case VIRT_RAM_POWER_LEVEL:  return cfg->power_level;
+        case VIRT_RAM_POWER_LEVEL:  return cfg->power_level+1;
         case VIRT_RAM_SPLIT_MODE_A: return mode_to_protocol(cfg->split_a_mode);
         case VIRT_RAM_SPLIT_MODE_B: return mode_to_protocol(cfg->split_b_mode);
         case VIRT_RAM_FAVOURITE:    return mode_to_protocol(cfg->favorite_mode);
@@ -149,8 +149,10 @@ static uint8_t read_ram(uint16_t address) {
         case VIRT_RAM_ADV_EFFECT:   return cfg->adv_effect;
         case VIRT_RAM_ADV_WIDTH:    return cfg->adv_width;
         case VIRT_RAM_ADV_PACE:     return cfg->adv_pace;
-        case VIRT_RAM_BATTERY_LEVEL: return (uint8_t)(adc_read_battery() >> 2);
-        case VIRT_RAM_MULTI_ADJUST: return *MULTI_ADJUST_VALUE;
+        case VIRT_RAM_BATTERY_LEVEL: { uint16_t battery = adc_read_battery();
+                                       return (battery > BATTERY_ADC_EMPTY) ? ((battery - BATTERY_ADC_EMPTY) * 100) / BATTERY_ADC_RANGE : 0; }
+        case VIRT_RAM_MA_OFFSET:    return *MULTI_ADJUST_OFFSET;
+        case VIRT_RAM_MULTI_ADJUST: return *MULTI_ADJUST; 
         case VIRT_RAM_BOX_KEY:      return 0x00;
         case VIRT_RAM_POWER_SUPPLY: return 0x02;
 
@@ -215,8 +217,8 @@ static void write_ram(uint16_t address, uint8_t value) {
         case VIRT_RAM_ADV_PACE:     cfg->adv_pace = value; break;
 
         case VIRT_RAM_MULTI_ADJUST:
-            *MULTI_ADJUST_VALUE = value;
-            cfg->multi_adjust = value;
+         //   *MULTI_ADJUST_VALUE = value;
+            //cfg->multi_adjust = value;
             break;
 
         case VIRT_RAM_BOX_KEY:

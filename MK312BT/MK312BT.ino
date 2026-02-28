@@ -41,6 +41,7 @@
 #include "menu.h"
 #include "serial.h"
 #include "dac.h"
+#include "adc.h"
 #include "pulse_gen.h"
 #include "prng.h"
 #include "user_programs.h"
@@ -60,8 +61,6 @@ uint16_t ChannelBPwrBase;
 uint16_t ChannelAModulationBase;
 uint16_t ChannelBModulationBase;
 
-uint16_t MAInput = 0;
-//extern bool system_timer_ready;
 
 static uint8_t last_power_level = 0xFF;
 
@@ -94,6 +93,150 @@ static void applyPowerLevel(void) {
 static uint8_t ramp_scale_intensity(uint8_t intensity, uint8_t ramp_val) {
     return (uint8_t)(((uint16_t)intensity * ramp_val) >> 8);
 }
+
+void initializeHardware() {
+  cli();
+
+  DDRB = 0xFF;
+  DDRC = 0xFF;
+  DDRD = 0xFF;
+
+  PORTB = 0x00;
+  PORTC = 0x00;
+  PORTD = PORTD_INIT_STATE;
+
+  UBRRH = (uint8_t)(USART_UBRR_VALUE >> 8);
+  UBRRL = (uint8_t)USART_UBRR_VALUE;
+  UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0);
+  UCSRB = (1 << RXEN) | (1 << TXEN) | (1 << RXCIE);
+  //UCSRB = (1 << RXEN) | (1 << TXEN);
+
+  ADMUX  = ADC_VREF_AVCC;
+  ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+
+  SPCR = SPI_MASTER_MODE | SPI_CLOCK_DIV_16;
+
+  GICR  = 0x00;
+  MCUCR = (1 << ISC01) | (1 << ISC11);
+
+  sei();
+}
+
+void handleUserInput() {
+  ButtonEvent event = BUTTON_NONE;
+
+  static bool last_up = true, last_down = true, last_menu = true, last_ok = true;
+  static unsigned long last_event_ms = 0;
+
+  lcd_enable_buttons();
+  _delay_us(50);
+
+  bool up_reading   = !digitalRead(BUTTON_UP_PIN);
+  bool down_reading = !digitalRead(BUTTON_DOWN_PIN);
+  bool menu_reading = !digitalRead(BUTTON_MENU_PIN);
+  bool ok_reading   = !digitalRead(BUTTON_OK_PIN);
+
+  lcd_disable_buttons();
+
+  unsigned long now = millis();
+  bool debounce_ok = (now - last_event_ms) >= 150;
+
+  bool up_pressed   = debounce_ok && (up_reading   && !last_up);
+  bool down_pressed = debounce_ok && (down_reading && !last_down);
+  bool menu_pressed = debounce_ok && (menu_reading && !last_menu);
+  bool ok_pressed   = debounce_ok && (ok_reading   && !last_ok);
+
+  last_up   = up_reading;
+  last_down = down_reading;
+  last_menu = menu_reading;
+  last_ok   = ok_reading;
+
+  if (menu_pressed) {
+    event = BUTTON_MENU;
+  } else if (ok_pressed) {
+    event = BUTTON_OK;
+  } else if (up_pressed) {
+    event = BUTTON_UP;
+  } else if (down_pressed) {
+    event = BUTTON_DOWN;
+  }
+
+  if (event != BUTTON_NONE) {
+    last_event_ms = now;
+    *POT_LOCKOUT_FLAGS = 0x00;
+    menuHandleButton(event);
+    if (CurrentModeIX != g_menu_config.top_mode) {
+      CurrentModeIX = g_menu_config.top_mode;
+      mode_dispatcher_select_mode(CurrentModeIX);
+    }
+  }
+}
+
+void displayStartupScreen() {
+  lcd_clear();
+  lcd_set_cursor(0, 0);
+  lcd_write_string_P(PSTR("Initializing..."));
+  _delay_ms(50);
+  for (uint8_t i = 1; i <= 16; i++) {
+    lcd_show_progress(i, 16);
+    _delay_ms(50);
+  }
+}
+
+
+uint8_t readAndUpdateChannel(uint8_t c) {
+  //if (*POT_LOCKOUT_FLAGS & 0x01) {
+  //  return 0;
+ // }
+
+  uint8_t menu_ramp = menuGetRampPercent();
+
+  if (c == 0) {
+    uint16_t v = analogRead(ADC_CHANNEL_LEVEL_A_PIN);
+    uint8_t bv = min(99, max(0, (uint8_t)(v >> 3)));
+uint16_t dac_val = ChannelAPwrBase +
+  ((uint32_t)ChannelAModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
+    if (dac_val > DAC_MAX_VALUE) dac_val = DAC_MAX_VALUE;
+
+    uint8_t intensity = ramp_scale_intensity(channel_a.intensity_value, channel_a.ramp_value);
+    intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
+    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
+
+    dac_write_channel_a(dac_val);
+    return bv;
+  } else {
+    uint16_t v = analogRead(ADC_CHANNEL_LEVEL_B_PIN);
+    uint8_t bv = min(99, max(0, (uint8_t)(v / 8)));
+    uint16_t dac_val = ChannelBPwrBase +
+      ((uint32_t)ChannelBModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
+    if (dac_val > DAC_MAX_VALUE) dac_val = DAC_MAX_VALUE;
+
+    uint8_t intensity = ramp_scale_intensity(channel_b.intensity_value, channel_b.ramp_value);
+    intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
+    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
+
+    dac_write_channel_b(dac_val);
+    return bv;
+  }
+}
+
+
+void runningLine1() {
+  if (!(*POT_LOCKOUT_FLAGS & 0x08)) {
+  readAndUpdateChannel(0);
+  readAndUpdateChannel(1);
+
+  // Multi Adjust 0-75 Scaled
+  *MULTI_ADJUST_OFFSET =min(75, max(0, (uint8_t)(ma_read_level() >> 2)));   
+    //*MULTI_ADJUST_OFFSET = map(min(75, max(0, (uint8_t)(ma_read_level() >> 2))), 0, 75, 0, 255);   // MA Offset value = 0 to 255
+    //*MULTI_ADJUST = channel_get_reg_ptr(0x08086); // MA MIN
+    // system_config_t* sys_config = config_get();
+    // sys_config->multi_adjust = (uint8_t)(ma_read_level(); >> 2);
+    // Multi Adjust 0-255 Scaled 
+  *MULTI_ADJUST = map_ma(map(min(75, max(0, (uint8_t)(ma_read_level() >> 2))), 0, 75, 0, 255), ((uint8_t*)&channel_a)[7], ((uint8_t*)&channel_a)[6]);   
+  }
+}
+
 
 void setup() {
   cli();
@@ -150,7 +293,6 @@ void setup() {
   menuShowStartup();
   while (1) {
     wdt_reset();
-    //serial_process();
     lcd_enable_buttons();
     _delay_us(50);
     bool ok   = !digitalRead(BUTTON_OK_PIN);
@@ -199,7 +341,6 @@ void setup() {
   mode_dispatcher_select_mode(CurrentModeIX);
 
   sei();
-  //system_timer_ready = true;
   wdt_enable(WDTO_2S);
   menuStartOutput();
 
@@ -208,55 +349,6 @@ void setup() {
   last_menu_update = millis();
   last_ramp_update = millis();
   last_mode_update = millis();
-}
-
-uint8_t readAndUpdateChannel(uint8_t c) {
-  if (*POT_LOCKOUT_FLAGS & 0x01) {
-    return 0;
-  }
-
-  uint8_t menu_ramp = menuGetRampPercent();
-
-  if (c == 0) {
-    uint16_t v = analogRead(ADC_CHANNEL_LEVEL_A_PIN);
-    uint8_t bv = min(99, max(0, (uint8_t)(v >> 3)));
-uint16_t dac_val = ChannelAPwrBase +
-  ((uint32_t)ChannelAModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
-    if (dac_val > DAC_MAX_VALUE) dac_val = DAC_MAX_VALUE;
-
-    uint8_t intensity = ramp_scale_intensity(channel_a.intensity_value, channel_a.ramp_value);
-    intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
-    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
-
-    dac_write_channel_a(dac_val);
-    return bv;
-  } else {
-    uint16_t v = analogRead(ADC_CHANNEL_LEVEL_B_PIN);
-    uint8_t bv = min(99, max(0, (uint8_t)(v / 8)));
-    uint16_t dac_val = ChannelBPwrBase +
-      ((uint32_t)ChannelBModulationBase * (uint32_t)(DAC_MAX_VALUE - v)) / 1024;
-    if (dac_val > DAC_MAX_VALUE) dac_val = DAC_MAX_VALUE;
-
-    uint8_t intensity = ramp_scale_intensity(channel_b.intensity_value, channel_b.ramp_value);
-    intensity = (uint8_t)(((uint16_t)intensity * menu_ramp) / 100);
-    dac_val = DAC_MAX_VALUE - (uint16_t)(((uint32_t)(DAC_MAX_VALUE - dac_val) * intensity) >> 8);
-
-    dac_write_channel_b(dac_val);
-    return bv;
-  }
-}
-
-void runningLine1() {
-  readAndUpdateChannel(0);
-  readAndUpdateChannel(1);
-
-  if (!(*POT_LOCKOUT_FLAGS & 0x08)) {
-    MAInput = analogRead(ADC_MULTI_ADJ_VR3G1);
-    if (MAInput > DAC_MAX_VALUE) MAInput = DAC_MAX_VALUE;
-
-    system_config_t* sys_config = config_get();
-   sys_config->multi_adjust = (uint8_t)(MAInput >> 2);
-  }
 }
 
 void loop() {
@@ -359,93 +451,4 @@ else
     menuHandleRampUp();
   }
   
-}
-
-void initializeHardware() {
-  cli();
-
-  DDRB = 0xFF;
-  DDRC = 0xFF;
-  DDRD = 0xFF;
-
-  PORTB = 0x00;
-  PORTC = 0x00;
-  PORTD = PORTD_INIT_STATE;
-
-  UBRRH = (uint8_t)(USART_UBRR_VALUE >> 8);
-  UBRRL = (uint8_t)USART_UBRR_VALUE;
-  UCSRC = (1 << URSEL) | (1 << UCSZ1) | (1 << UCSZ0);
-  UCSRB = (1 << RXEN) | (1 << TXEN) | (1 << RXCIE);
-  //UCSRB = (1 << RXEN) | (1 << TXEN);
-
-  ADMUX  = ADC_VREF_AVCC;
-  ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
-
-  SPCR = SPI_MASTER_MODE | SPI_CLOCK_DIV_16;
-
-  GICR  = 0x00;
-  MCUCR = (1 << ISC01) | (1 << ISC11);
-
-  sei();
-}
-
-void handleUserInput() {
-  ButtonEvent event = BUTTON_NONE;
-
-  static bool last_up = true, last_down = true, last_menu = true, last_ok = true;
-  static unsigned long last_event_ms = 0;
-
-  lcd_enable_buttons();
-  _delay_us(50);
-
-  bool up_reading   = !digitalRead(BUTTON_UP_PIN);
-  bool down_reading = !digitalRead(BUTTON_DOWN_PIN);
-  bool menu_reading = !digitalRead(BUTTON_MENU_PIN);
-  bool ok_reading   = !digitalRead(BUTTON_OK_PIN);
-
-  lcd_disable_buttons();
-
-  unsigned long now = millis();
-  bool debounce_ok = (now - last_event_ms) >= 150;
-
-  bool up_pressed   = debounce_ok && (up_reading   && !last_up);
-  bool down_pressed = debounce_ok && (down_reading && !last_down);
-  bool menu_pressed = debounce_ok && (menu_reading && !last_menu);
-  bool ok_pressed   = debounce_ok && (ok_reading   && !last_ok);
-
-  last_up   = up_reading;
-  last_down = down_reading;
-  last_menu = menu_reading;
-  last_ok   = ok_reading;
-
-  if (menu_pressed) {
-    event = BUTTON_MENU;
-  } else if (ok_pressed) {
-    event = BUTTON_OK;
-  } else if (up_pressed) {
-    event = BUTTON_UP;
-  } else if (down_pressed) {
-    event = BUTTON_DOWN;
-  }
-
-  if (event != BUTTON_NONE) {
-    last_event_ms = now;
-    *POT_LOCKOUT_FLAGS = 0x00;
-    menuHandleButton(event);
-    if (CurrentModeIX != g_menu_config.top_mode) {
-      CurrentModeIX = g_menu_config.top_mode;
-      mode_dispatcher_select_mode(CurrentModeIX);
-    }
-  }
-}
-
-void displayStartupScreen() {
-  lcd_clear();
-  lcd_set_cursor(0, 0);
-  lcd_write_string_P(PSTR("Initializing..."));
-  _delay_ms(50);
-  for (uint8_t i = 1; i <= 16; i++) {
-    lcd_show_progress(i, 16);
-    _delay_ms(50);
-  }
 }

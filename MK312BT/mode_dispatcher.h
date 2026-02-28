@@ -17,6 +17,7 @@
 extern "C" {
 #endif
 
+uint8_t map_ma(uint8_t ma_raw, uint8_t ma_high, uint8_t ma_low);
 void mode_dispatcher_init(void);
 void mode_dispatcher_select_mode(uint8_t mode_number);
 void mode_dispatcher_update(void);

@@ -12,8 +12,8 @@ static const uint8_t channel_defaults[CHAN_BLOCK_SIZE] PROGMEM = {
     0x00,       // +03  0x83  output_control_flags
     0x00,       // +04  0x84  cond_module
     0x03,       // +05  0x85  apply_channel = both
-    0x01,       // +06  0x86  ma_range_high = 1   (value when MA at max: fastest rate)
-    0xFF,       // +07  0x87  ma_range_low  = 255 (value when MA at min: slowest rate)
+    0x01,       // +06  0x86  ma_range_Min = 1    (value when MA at min: slowest rate)  
+    0xFF,       // +07  0x87  ma_range_Max  = 255 (value when MA at max: fastest rate) 
     0x00,       // +08  0x88  routine_timer_lo
     0x00,       // +09  0x89  routine_timer_mid
     0x00,       // +0A  0x8A  routine_timer_hi

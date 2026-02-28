@@ -18,12 +18,6 @@
 #include "avr_registers.h"
 
 
-void adc_init(void) {
-    /* ADC hardware is configured in initializeHardware().
-     * No additional init required when using analogRead(). */
-}
-
-
 uint16_t adc_read_level_a(void) {
     return fastAnalogRead(ADC_CHANNEL_LEVEL_A_PIN);
 }
@@ -43,6 +37,11 @@ uint16_t adc_read_audio_b(void) {
 uint16_t adc_read_battery(void) {
     return fastAnalogRead(ADC_BATTERY_PIN);
 }
+
+uint16_t ma_read_level(void) {
+    return fastAnalogRead(ADC_MULTI_ADJ_VR3G1);
+}
+
 
 uint16_t fastAnalogRead(uint8_t pin) {
     // Convert Arduino pin number (e.g., A0) to channel (0-7)
