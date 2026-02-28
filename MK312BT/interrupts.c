@@ -3,8 +3,6 @@
  *
  * Timer1 CompA ISR: Channel A biphasic pulse generation (PB2/PB3)
  * Timer2 Comp ISR:  Channel B biphasic pulse generation (PB0/PB1)
- * USART RX ISR:     Drain receive buffer to prevent overrun
- * SPI STC ISR:      Drain SPI buffer to prevent overrun
  *
  * Each timer ISR implements a 5-phase state machine:
  *   GAP -> POSITIVE -> DEADTIME1 -> NEGATIVE -> DEADTIME2 -> GAP
@@ -185,4 +183,5 @@ ISR(TIMER2_COMP_vect) {
 }
 
  
+
 
